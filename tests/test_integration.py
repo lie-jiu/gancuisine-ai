@@ -3,6 +3,8 @@
 Tests the full flow: 冰柜展示 → 选食材 → 推荐做法 → 下单 → 结账
 """
 
+import os
+
 import pytest
 from fastapi.testclient import TestClient
 
@@ -103,8 +105,9 @@ class TestOrderFlow:
 
 
 class TestChatFlow:
-    """聊天对话测试"""
+    """聊天对话测试（需 OPENAI_API_KEY）"""
 
+    @pytest.mark.skipif(not os.environ.get("OPENAI_API_KEY"), reason="需要 OPENAI_API_KEY")
     def test_chat_fridge_inquiry(self, test_client: TestClient):
         """问冰柜有什么"""
         resp = test_client.post("/chat", json={
@@ -116,6 +119,7 @@ class TestChatFlow:
         # Should mention fridge or ingredients
         assert any(kw in data["response"] for kw in ["冰柜", "食材", "来看看"])
 
+    @pytest.mark.skipif(not os.environ.get("OPENAI_API_KEY"), reason="需要 OPENAI_API_KEY")
     def test_chat_recommendation(self, test_client: TestClient):
         """问推荐菜"""
         resp = test_client.post("/chat", json={

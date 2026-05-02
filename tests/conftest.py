@@ -12,15 +12,8 @@ from app.db.memory import db
 
 @pytest.fixture(autouse=True)
 def reset_db():
-    """Reset the in-memory database before each test."""
-    db.tables.clear()
-    db.fridge.clear()
-    db.orders.clear()
-    db.reservations.clear()
-    db.inventory.clear()
-    db.bills.clear()
-    db.conversations.clear()
-    db._init_defaults()
+    """Reset the database (drop + re-seed) before each test."""
+    db.reset_db()
     yield
 
 

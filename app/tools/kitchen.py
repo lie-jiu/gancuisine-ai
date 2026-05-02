@@ -14,13 +14,22 @@ def create_order(table_id: int, customer_name: str = "") -> str:
     return f"✅ 订单已创建: {order.id}（桌号{table_id}）"
 
 
-def add_item_to_order(order_id: str, menu_item_id: int, quantity: int = 1, notes: str = "") -> str:
-    """Add a menu item to an existing order."""
-    item = OrderItem(menu_item_id=menu_item_id, quantity=quantity, notes=notes)
+def add_item_to_order(
+    order_id: str, dish_name: str, quantity: int = 1,
+    unit_price: float = 0.0, cooking_method: str = "小炒",
+    ingredients_used: str = "", notes: str = "",
+) -> str:
+    """Add a dish to an existing order (冰柜点菜)."""
+    ingredients = [s.strip() for s in ingredients_used.split(",") if s.strip()]
+    item = OrderItem(
+        dish_name=dish_name, quantity=quantity,
+        unit_price=unit_price, cooking_method=cooking_method,
+        ingredients_used=ingredients, notes=notes,
+    )
     order = db.add_order_item(order_id, item)
     if not order:
         return f"❌ 未找到订单 {order_id}"
-    return f"✅ 已添加至订单 {order_id}"
+    return f"✅ 「{dish_name}」已添加至订单 {order_id}"
 
 
 def confirm_order(order_id: str) -> str:
@@ -60,7 +69,7 @@ def get_order_status(order_id: str) -> str:
     order = db.get_order(order_id)
     if not order:
         return f"未找到订单 {order_id}"
-    items_str = "; ".join(f"{i.menu_item_name}x{i.quantity}" for i in order.items)
+    items_str = "; ".join(f"{i.dish_name}x{i.quantity}" for i in order.items)
     return (
         f"📋 订单 {order.id}\n"
         f"  桌号: {order.table_id}\n"
@@ -90,16 +99,19 @@ TOOL_LIST = [
         "type": "function",
         "function": {
             "name": "add_item_to_order",
-            "description": "Add a menu item (by ID) to an order",
+            "description": "Add a dish (by name from 冰柜) to an order",
             "parameters": {
                 "type": "object",
                 "properties": {
                     "order_id": {"type": "string"},
-                    "menu_item_id": {"type": "integer"},
+                    "dish_name": {"type": "string", "description": "菜品名称"},
                     "quantity": {"type": "integer"},
+                    "unit_price": {"type": "number", "description": "单价"},
+                    "cooking_method": {"type": "string", "description": "烹饪方式，如小炒/清蒸/红烧"},
+                    "ingredients_used": {"type": "string", "description": "使用的食材，逗号分隔"},
                     "notes": {"type": "string"},
                 },
-                "required": ["order_id", "menu_item_id"],
+                "required": ["order_id", "dish_name"],
             },
         },
     },
