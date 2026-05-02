@@ -3,9 +3,9 @@ requires = ["setuptools>=68.0"]
 build-backend = "setuptools.backends._legacy:_Backend"
 
 [project]
-name = "restaurant-multi-agent-service"
+name = "gancuisine-ai"
 version = "1.0.0"
-description = "Multi-agent restaurant service system powered by LangGraph"
+description = "GanCuisineAI (赣厨AI) — Jiangxi-style fridge-to-table multi-agent restaurant system"
 requires-python = ">=3.11"
 dependencies = [
     "langgraph>=0.3.0",

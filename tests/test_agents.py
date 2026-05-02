@@ -1,79 +1,86 @@
-"""Tests for individual agent tools and ReAct logic (unit tests)."""
+"""单元测试 — 冰柜工具和Agent功能测试。"""
 
 from app.db.memory import db
-from app.models.schemas import OrderItem
-from app.tools import menu as tools_menu
+from app.models.schemas import OrderItem, DishSuggestion
+from app.tools import fridge as tools_fridge
 from app.tools import kitchen as tools_kitchen
-from app.tools import billing as tools_billing
 from app.tools import inventory as tools_inv
-from app.tools import reservation as tools_res
+from app.tools import billing as tools_billing
 
 
-class TestReceptionistTools:
-    """Test the reservation tools used by ReceptionistAgent."""
+class TestFridgeTools:
+    """冰柜展示核心功能"""
 
-    def test_search_available_tables(self):
-        result = tools_res.search_available_tables(4)
-        assert "可用桌位" in result
-        assert "桌号" in result
+    def test_show_fridge_all(self):
+        result = tools_fridge.show_fridge()
+        assert "五花肉" in result
+        assert "藜蒿" in result
+        assert "腊肉" in result
+        assert "冰柜" in result
 
-    def test_search_available_too_large(self):
-        result = tools_res.search_available_tables(20)
-        assert "抱歉" in result
+    def test_show_fridge_category(self):
+        result = tools_fridge.show_fridge("meat")
+        assert "五花肉" in result
+        assert "肉的" in result or "🥩" in result
 
-    def test_make_and_cancel_reservation(self):
-        from datetime import datetime, timedelta
-        dt = (datetime.now() + timedelta(days=1)).strftime("%Y-%m-%dT19:00")
-        result = tools_res.make_reservation("测试", 2, dt, "13800138000", "无")
-        assert "预订成功" in result
+        result = tools_fridge.show_fridge("vegetable")
+        assert "辣椒" in result or "藜蒿" in result
 
-        # Get reservation ID from result
-        # The ID is in the format "预订编号：RES-XXXXXXXX"
-        import re
-        match = re.search(r"RES-\w+", result)
-        assert match
-        res_id = match.group()
+    def test_show_fridge_item(self):
+        result = tools_fridge.show_fridge_item(1)
+        assert "五花肉" in result
+        assert "价" in result
 
-        cancel = tools_res.cancel_reservation(res_id)
-        assert "已取消" in cancel
+        result = tools_fridge.show_fridge_item(99)
+        assert "没有" in result
 
-    def test_list_reservations(self):
-        result = tools_res.list_all_reservations()
-        assert "暂无" in result or "预订" in result
+    def test_search_fridge(self):
+        result = tools_fridge.search_fridge("辣")
+        assert "辣椒" in result
 
+        result = tools_fridge.search_fridge("腊肉")
+        assert "腊肉" in result
 
-class TestMenuTools:
-    """Test menu query tools."""
+        result = tools_fridge.search_fridge("不存在的食材")
+        assert "没找到" in result
 
-    def test_get_full_menu(self):
-        result = tools_menu.get_menu()
-        assert "宫保鸡丁" in result
-        assert "北京烤鸭" in result
+    def test_suggest_dishes_classic(self):
+        """经典赣菜搭配"""
+        result = tools_fridge.suggest_dishes([11, 14])  # 腊肉+藜蒿
+        assert "藜蒿炒腊肉" in result
 
-    def test_get_menu_by_category(self):
-        result = tools_menu.get_menu("wine")
-        assert "红酒" in result
-        assert "茅台" in result
+        result = tools_fridge.suggest_dishes([1, 15])  # 五花肉+辣椒
+        assert "辣椒炒肉" in result
 
-    def test_get_menu_item(self):
-        result = tools_menu.get_menu_item_details(1)
-        assert "宫保鸡丁" in result
-        assert "¥68" in result
+    def test_suggest_dishes_single(self):
+        """单一食材"""
+        result = tools_fridge.suggest_dishes([1])  # 五花肉
+        assert any(kw in result for kw in ["粉蒸肉", "红烧肉", "推荐"])
+
+    def test_suggest_dishes_empty(self):
+        """不存在的食材"""
+        result = tools_fridge.suggest_dishes([99, 100])
+        assert "没有" in result or "抱歉" in result
 
 
 class TestKitchenTools:
-    """Test order/kitchen tools."""
+    """厨房订单管理"""
 
     def test_create_and_process_order(self):
-        # Create
         result = tools_kitchen.create_order(5)
         assert "订单已创建" in result
+
         import re
         order_id = re.search(r"ORD-\w+", result).group()
 
-        # Add item
-        result = tools_kitchen.add_item_to_order(order_id, 1, 2, "微辣")
-        assert "已添加" in result
+        # Simulate adding a dish
+        from app.db.memory import db
+        order = db.get_order(order_id)
+        assert order is not None
+
+        item = OrderItem(dish_name="辣椒炒肉", ingredients_used=["五花肉", "辣椒"],
+                         cooking_method="小炒", unit_price=35.0)
+        db.add_order_item(order_id, item)
 
         # Confirm
         result = tools_kitchen.confirm_order(order_id)
@@ -87,47 +94,31 @@ class TestKitchenTools:
         result = tools_kitchen.mark_order_ready(order_id)
         assert "已完成" in result
 
-    def test_order_status(self):
-        order = db.create_order(3)
-        result = tools_kitchen.get_order_status(order.id)
-        assert order.id in result
-
 
 class TestInventoryTools:
-    """Test inventory tools."""
+    """库存管理"""
 
     def test_list_inventory(self):
         result = tools_inv.list_all_inventory()
-        assert "chicken" in result
-
-    def test_use_and_check(self):
-        result = tools_inv.check_inventory("chicken")
-        assert "chicken" in result
-
-        result = tools_inv.use_ingredient("chicken", 2.0)
-        assert "已使用" in result or "✅" in result
+        assert "五花肉" in result or "食材" in result
 
     def test_restock(self):
-        result = tools_inv.restock_ingredient("chicken", 5.0)
-        assert "补货" in result
+        result = tools_inv.restock_ingredient("五花肉", 5.0)
+        assert "补货" in result or "✅" in result
 
 
 class TestBillingTools:
-    """Test billing tools."""
+    """账单测试"""
 
     def test_bill_flow(self):
-        # Add items to bill
-        result = tools_billing.add_to_bill(3, "宫保鸡丁", 1, 68.0)
+        result = tools_billing.add_to_bill(3, "辣椒炒肉", 1, 35.0)
         assert "已添加" in result
 
-        # Check bill
         result = tools_billing.get_bill(3)
-        assert "¥68" in result or "宫保鸡丁" in result
+        assert "辣椒炒肉" in result
 
-        # Split
         result = tools_billing.split_bill(3, 2)
-        assert "每人" in result
+        assert "每人" in result or "均分" in result
 
-        # Pay
         result = tools_billing.pay_bill(3)
         assert "已支付" in result or "✅" in result

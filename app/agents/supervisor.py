@@ -1,4 +1,7 @@
-"""经理 Agent — the supervisor/orchestrator that routes to specialist agents."""
+"""经理 Agent — the supervisor/orchestrator that routes to specialist agents.
+
+Routes tasks based on intent to the right specialist agent.
+"""
 
 from __future__ import annotations
 
@@ -7,7 +10,6 @@ import logging
 
 from openai import OpenAI
 
-from app.agents.base_agent import ReActAgent
 from app.agents.receptionist import ReceptionistAgent
 from app.agents.waiter import WaiterAgent
 from app.agents.chef import ChefAgent
@@ -22,28 +24,38 @@ AGENT_REGISTRY = {
     "receptionist": {
         "agent": ReceptionistAgent(),
         "description": "处理预订、座位安排和客人接待咨询",
-        "keywords": ["预订", "预约", "座位", "订位", "包间", "大厅", "窗边", "露台",
-                     "reservation", "book", "table", "cancel"],
+        "keywords": [
+            "预订", "预约", "座位", "订位", "包间", "大厅", "窗边", "露台",
+            "reservation", "book", "table", "cancel",
+        ],
     },
     "waiter": {
         "agent": WaiterAgent(),
-        "description": "点餐、上菜、账单和分账服务",
-        "keywords": ["点菜", "点餐", "菜单", "推荐", "下单", "买单", "结账",
-                     "order", "menu", "bill", "check", "serve", "recommend",
-                     "宫保鸡丁", "麻婆豆腐", "北京烤鸭", "炒饭", "春卷", "甜品",
-                     "菜单", "有什么菜", "来一份", "招牌"],
+        "description": "点菜引导、冰柜展示、推荐做法、上菜和账单服务",
+        "keywords": [
+            "冰柜", "有什么", "菜单", "推荐", "点菜", "点餐", "下单",
+            "买单", "结账", "order", "menu", "bill", "check", "serve",
+            "recommend", "吃什么", "吃啥", "看看", "有什么菜",
+        ],
     },
     "chef": {
         "agent": ChefAgent(),
-        "description": "厨房制作、食材库存和出餐管理",
-        "keywords": ["厨房", "制作", "出餐", "食材", "库存", "采购", "补货",
-                     "kitchen", "cook", "prepare", "inventory", "ingredient"],
+        "description": "厨房制作、食材识别、冰柜扫描、江西做法推荐和库存管理",
+        "keywords": [
+            "厨房", "制作", "出餐", "食材", "库存", "采购", "补货",
+            "kitchen", "cook", "prepare", "inventory", "ingredient",
+            "做法", "怎么吃", "怎么做", "识别", "照片", "拍照", "图片",
+            "scan", "vision",
+        ],
     },
     "sommelier": {
         "agent": SommelierAgent(),
         "description": "酒水推荐和饮品搭配建议",
-        "keywords": ["酒", "红酒", "白酒", "茅台", "葡萄酒", "搭配", "饮品",
-                     "wine", "drink", "pairing", "推荐酒", "喝什么", "干杯"],
+        "keywords": [
+            "酒", "红酒", "白酒", "四特", "啤酒", "米酒",
+            "wine", "drink", "pairing", "推荐酒", "喝什么", "干杯",
+            "搭配", "饮品",
+        ],
     },
 }
 
@@ -51,7 +63,7 @@ AGENT_REGISTRY = {
 class RouterLLM:
     """Lightweight LLM router that decides which agent should handle a query."""
 
-    SYSTEM_PROMPT = """你是一个餐厅服务系统的智能路由调度员。
+    SYSTEM_PROMPT = """你是一个江西特色餐厅的智能路由调度员。
 根据用户的问题和可用的服务Agent，选择最合适的Agent来处理。
 
 可用的Agent:
@@ -60,8 +72,12 @@ class RouterLLM:
 回复格式（仅返回JSON，不要有其他文字）:
 {{"agent": "agent_name", "reason": "简短的中文理由"}}
 
-如果用户的问题涉及多个方面，选择最主要的那个Agent。
-如果无法确定，默认选择 "receptionist"。
+注意：
+- 如果客人问"吃什么/有什么菜/看看冰柜" → 选 waiter
+- 如果客人发照片/问识别/问做法 → 选 chef
+- 如果客人要预订 → 选 receptionist
+- 如果涉及多个方面，选最主要的
+- 无法确定默认选 "waiter"
 """
 
     def __init__(self) -> None:
@@ -94,22 +110,16 @@ class RouterLLM:
                 response_format={"type": "json_object"},
             )
             result = json.loads(response.choices[0].message.content or "{}")
-            agent = result.get("agent", "receptionist")
+            agent = result.get("agent", "waiter")
             logger.info(f"[Router] LLM route → {agent} (reason: {result.get('reason', 'N/A')})")
             return agent
         except Exception as e:
-            logger.warning(f"[Router] LLM routing failed: {e}, defaulting to receptionist")
-            return "receptionist"
+            logger.warning(f"[Router] LLM routing failed: {e}, defaulting to waiter")
+            return "waiter"
 
 
 class SupervisorAgent:
-    """The manager/supervisor that orchestrates specialist agents.
-
-    This agent doesn't run a ReAct loop itself — instead it:
-    1. Analyzes the customer message
-    2. Routes to the right specialist agent
-    3. Returns the specialist's response
-    """
+    """The manager/supervisor that orchestrates specialist agents."""
 
     def __init__(self) -> None:
         self.router = RouterLLM()
@@ -137,11 +147,11 @@ class SupervisorAgent:
             resp = self.client.chat.completions.create(
                 model=self.model,
                 messages=[
-                    {"role": "system", "content": "你是一家高端中餐厅的经理，温和有礼地回答客人的各种问题。"},
+                    {"role": "system", "content": "你是一家江西特色餐厅的经理，热情豪爽地回答客人的各种问题。"},
                     {"role": "user", "content": message},
                 ],
                 temperature=0.3,
             )
-            return resp.choices[0].message.content or "欢迎光临！"
+            return resp.choices[0].message.content or "欢迎光临！来看冰柜，点什么做什么！"
         except Exception:
-            return "欢迎光临我们的餐厅！请问有什么可以帮您的？"
+            return "欢迎光临！来看冰柜，点什么做什么！"

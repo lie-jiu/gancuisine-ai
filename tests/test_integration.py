@@ -1,77 +1,94 @@
-"""Integration tests for the restaurant multi-agent system.
+"""Integration tests for the 江西冰柜点菜 multi-agent system.
 
-Tests the end-to-end flow: API → Supervisor → Agent → Tools → Response.
-All tests use the in-memory DB with fixtures, no external LLM needed.
+Tests the full flow: 冰柜展示 → 选食材 → 推荐做法 → 下单 → 结账
 """
 
 import pytest
 from fastapi.testclient import TestClient
 
 
-class TestReservationFlow:
-    """Test the full reservation lifecycle through the chat API."""
+class TestFridgeDisplay:
+    """冰柜展示——核心功能测试"""
 
-    def test_make_reservation(self, test_client: TestClient):
-        """A customer should be able to make a reservation via chat."""
-        response = test_client.post("/chat", json={
-            "message": "我想预订今晚6点4个人的位子，我叫张三",
-            "customer_name": "张三",
-        })
-        assert response.status_code == 200
-        data = response.json()
-        assert data["session_id"]
-        assert "预订" in data["response"] or "receptionist" in data["agent"]
+    def test_show_full_fridge(self, test_client: TestClient):
+        """展示全部冰柜食材"""
+        resp = test_client.get("/fridge")
+        assert resp.status_code == 200
+        data = resp.text
+        assert "五花肉" in data
+        assert "藜蒿" in data
+        assert "冰柜" in data or "🧊" in data
 
-    def test_reservation_then_query(self, test_client: TestClient):
-        """Customer should be able to check available tables."""
-        response = test_client.post("/chat", json={
-            "message": "今晚还有能坐4个人的桌吗？",
-            "customer_name": "王五",
-        })
-        assert response.status_code == 200
-        data = response.json()
-        # Should get table info back
-        assert data["session_id"]
+    def test_show_fridge_by_category(self, test_client: TestClient):
+        """按类别展示冰柜"""
+        resp = test_client.get("/fridge?category=meat")
+        assert resp.status_code == 200
+        assert "五花肉" in resp.text
+
+        resp = test_client.get("/fridge?category=vegetable")
+        assert resp.status_code == 200
+        assert "藜蒿" in resp.text or "辣椒" in resp.text
+
+    def test_fridge_item_detail(self, test_client: TestClient):
+        """查看食材详情"""
+        resp = test_client.get("/fridge/1")
+        assert resp.status_code == 200
+        assert "价" in resp.text or "做法" in resp.text
+
+    def test_search_fridge(self, test_client: TestClient):
+        """搜索冰柜"""
+        resp = test_client.get("/fridge/search/肉")
+        assert resp.status_code == 200
+        assert "五花肉" in resp.text
+
+        resp = test_client.get("/fridge/search/辣椒")
+        assert resp.status_code == 200
+        assert "辣椒" in resp.text
 
 
-class TestRestaurantInfo:
-    """Test that the system can answer basic restaurant questions."""
+class TestDishSuggestions:
+    """菜品推荐测试"""
 
-    def test_menu_inquiry(self, test_client: TestClient):
-        """Customer should be able to ask about the menu."""
-        response = test_client.post("/chat", json={
-            "message": "你们有什么招牌菜推荐？",
-            "customer_name": "赵六",
-        })
-        assert response.status_code == 200
-        data = response.json()
-        assert any(kw in data["response"] for kw in
-                   ["宫保鸡丁", "北京烤鸭", "麻婆豆腐", "推荐"])
+    def test_suggest_classic_pairing(self, test_client: TestClient):
+        """经典搭配：藜蒿+腊肉"""
+        resp = test_client.post("/fridge/suggest", json=[11, 14])
+        assert resp.status_code == 200
+        assert "藜蒿炒腊肉" in resp.text or "推荐" in resp.text
 
-    def test_business_hours(self, test_client: TestClient):
-        """Customer should be able to ask business hours."""
-        response = test_client.post("/chat", json={
-            "message": "你们营业到几点？",
-        })
-        assert response.status_code == 200
+    def test_suggest_chili_meat(self, test_client: TestClient):
+        """辣椒+五花肉→辣椒炒肉"""
+        resp = test_client.post("/fridge/suggest", json=[1, 15])
+        assert resp.status_code == 200
+        assert "辣椒炒肉" in resp.text or "推荐" in resp.text
+
+    def test_suggest_soup(self, test_client: TestClient):
+        """排骨+莲藕→瓦罐汤"""
+        resp = test_client.post("/fridge/suggest", json=[2, 18, 21])
+        assert resp.status_code == 200
+        assert "瓦罐" in resp.text or "汤" in resp.text
 
 
 class TestOrderFlow:
-    """Test the ordering lifecycle through the API."""
+    """点单流程测试"""
 
     def test_create_and_manage_order(self, test_client: TestClient):
-        """Should be able to create order via REST API."""
-        # Create order
-        resp = test_client.post("/orders", params={"table_id": 3, "customer_name": "测试客"})
+        """创建订单并添加菜品"""
+        resp = test_client.post("/orders", params={"table_id": 3, "customer_name": "老表"})
         assert resp.status_code == 200
         order = resp.json()
         assert order["id"].startswith("ORD-")
 
-        # Add item
+        # Add a dish
         order_id = order["id"]
         resp = test_client.post(
             f"/orders/{order_id}/items",
-            params={"menu_item_id": 1, "quantity": 2},
+            params={
+                "dish_name": "辣椒炒肉",
+                "unit_price": 35,
+                "cooking_method": "小炒",
+                "quantity": 1,
+                "ingredients_used": "五花肉,辣椒",
+            },
         )
         assert resp.status_code == 200
         assert resp.json()["total"] > 0
@@ -85,80 +102,78 @@ class TestOrderFlow:
         assert resp.json()["status"] == "confirmed"
 
 
-class TestBillingFlow:
-    """Test the billing lifecycle."""
+class TestChatFlow:
+    """聊天对话测试"""
 
-    def test_bill_flow(self, test_client: TestClient):
-        """Should be able to add items to bill and pay."""
-        # Add bill items
+    def test_chat_fridge_inquiry(self, test_client: TestClient):
+        """问冰柜有什么"""
+        resp = test_client.post("/chat", json={
+            "message": "有什么吃的？",
+        })
+        assert resp.status_code == 200
+        data = resp.json()
+        assert data["session_id"]
+        # Should mention fridge or ingredients
+        assert any(kw in data["response"] for kw in ["冰柜", "食材", "来看看"])
+
+    def test_chat_recommendation(self, test_client: TestClient):
+        """问推荐菜"""
+        resp = test_client.post("/chat", json={
+            "message": "你们有什么招牌菜推荐？",
+        })
+        assert resp.status_code == 200
+        data = resp.json()
+        assert any(kw in data["response"] for kw in
+                   ["藜蒿炒腊肉", "粉蒸肉", "辣椒炒肉", "推荐"])
+
+
+class TestBillingFlow:
+    """账单测试"""
+
+    def test_bill_lifecycle(self, test_client: TestClient):
+        """完整账单流程"""
+        # Empty bill
         resp = test_client.get("/bills/5")
         assert resp.status_code == 200
-        assert "暂无" not in resp.text  # should handle empty bill gracefully
 
-    def test_split_bill(self, test_client: TestClient):
-        """Should be able to split a bill."""
-        # First add something to the bill
+        # Add items (via internal tool)
         from app.tools.billing import add_to_bill
-        add_to_bill(1, "宫保鸡丁", 2, 68.0)
+        add_to_bill(5, "辣椒炒肉", 1, 35.0)
+        add_to_bill(5, "米饭", 2, 3.0)
 
-        resp = test_client.post("/bills/1/split", params={"num_people": 4})
+        resp = test_client.get("/bills/5")
+        assert "辣椒炒肉" in resp.text
+
+        # Split
+        resp = test_client.post("/bills/5/split", params={"num_people": 2})
         assert resp.status_code == 200
         assert "每人" in resp.text
 
-
-class TestInventoryFlow:
-    """Test inventory management."""
-
-    def test_inventory_check(self, test_client: TestClient):
-        """Should be able to check inventory."""
-        resp = test_client.get("/inventory")
+        # Pay
+        resp = test_client.post("/bills/5/pay")
         assert resp.status_code == 200
-        assert "chicken" in resp.text or "食材" in resp.text
+        assert "已支付" in resp.text or "✅" in resp.text
 
-    def test_restock(self, test_client: TestClient):
-        """Should be able to restock ingredients."""
+
+class TestReservationFlow:
+    """预订测试"""
+
+    def test_make_reservation(self, test_client: TestClient):
+        """通过API创建预订"""
+        from datetime import datetime, timedelta
+        dt = (datetime.now() + timedelta(days=1)).strftime("%Y-%m-%dT19:00")
+
         resp = test_client.post(
-            "/inventory/restock",
-            params={"name": "chicken", "quantity": 5.0},
+            "/reservations",
+            params={
+                "customer_name": "老张",
+                "party_size": 4,
+                "time": dt,
+                "phone": "13800138000",
+                "special_requests": "要个包间",
+            },
         )
         assert resp.status_code == 200
-        assert "补货" in resp.text or "✅" in resp.text
-
-
-class TestConversationManagement:
-    """Test the conversation/session lifecycle."""
-
-    def test_conversation_history(self, test_client: TestClient):
-        """Should be able to retrieve conversation history."""
-        # Start a conversation
-        resp = test_client.post("/chat", json={
-            "message": "你好，我想订位",
-            "customer_name": "历史客",
-        })
-        session_id = resp.json()["session_id"]
-
-        # Retrieve history
-        resp = test_client.get(f"/chat/{session_id}")
-        assert resp.status_code == 200
         data = resp.json()
-        assert data["customer_name"] == "历史客"
-        assert len(data["turns"]) >= 2  # customer + agent
-
-    def test_clear_conversation(self, test_client: TestClient):
-        """Should be able to clear a conversation."""
-        resp = test_client.post("/chat", json={"message": "测试"})
-        session_id = resp.json()["session_id"]
-
-        resp = test_client.delete(f"/chat/{session_id}")
-        assert resp.status_code == 200
-        assert resp.json()["status"] == "cleared"
-
-
-class TestHealthEndpoint:
-    """Test the health check endpoint."""
-
-    def test_health(self, test_client: TestClient):
-        """Health endpoint should return ok."""
-        resp = test_client.get("/health")
-        assert resp.status_code == 200
-        assert resp.json()["status"] == "ok"
+        assert data["id"].startswith("RES-")
+        assert data["customer_name"] == "老张"

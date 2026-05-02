@@ -1,64 +1,32 @@
-"""Menu query tools for waiter & sommelier."""
+"""菜单查询 — 江西特色：菜单已被冰柜取代！
+
+保留此模块仅用于向后兼容，实际功能委托给 fridge.py。
+"""
 
 from __future__ import annotations
 
 from typing import Any
 
-from app.db.memory import db
+from app.tools.fridge import show_fridge, show_fridge_item
 
 
 def get_menu(category: str | None = None) -> str:
-    """Get the full menu, optionally filtered by category.
-
-    Categories: appetizer, main, dessert, drink, wine
-    """
-    items = db.get_menu(category)
-    if not items:
-        return f"菜单分类 '{category}' 暂无菜品。"
-
-    category_labels = {
-        "appetizer": "🥟 前菜",
-        "main": "🍛 主菜",
-        "dessert": "🍰 甜品",
-        "drink": "🍵 饮品",
-        "wine": "🍷 酒水",
-    }
-
-    lines = []
-    if category:
-        label = category_labels.get(category, category)
-        lines.append(f"📋 {label}:")
-    else:
-        lines.append("📋 完整菜单:")
-        # group by category
-        from itertools import groupby
-        items_sorted = sorted(items, key=lambda x: x.category)
-        for cat, group in groupby(items_sorted, key=lambda x: x.category):
-            label = category_labels.get(cat, cat)
-            lines.append(f"\n--- {label} ---")
-            for item in group:
-                lines.append(f"  {item.id:>2}. {item.name_zh} ({item.name}) — ¥{item.price:.0f}")
-        return "\n".join(lines)
-
-    for item in items:
-        lines.append(f"  {item.id:>2}. {item.name_zh} ({item.name}) — ¥{item.price:.0f}")
-    return "\n".join(lines)
+    """已废弃：江西特色没有菜单，请使用冰柜展示。"""
+    return (
+        "🍜 我们江西菜没有菜单！\n\n"
+        "请到冰柜前看看今天有什么新鲜食材：\n"
+        "  - 🥩 新鲜肉类\n"
+        "  - 🥬 当季蔬菜\n"
+        "  - 🦐 鄱阳湖水产\n"
+        "  - 🥓 赣南腊味\n\n"
+        "看中什么告诉服务员，厨师现场给您做！\n"
+        "或者您可以让我看看冰柜：'看看冰柜有什么？'"
+    )
 
 
 def get_menu_item_details(item_id: int) -> str:
-    """Get detailed info about a specific menu item by its ID."""
-    item = db.get_menu_item(item_id)
-    if not item:
-        return f"未找到菜品 ID {item_id}"
-    return (
-        f"🍽️ {item.name_zh} ({item.name})\n"
-        f"  分类: {item.category}\n"
-        f"  价格: ¥{item.price:.0f}\n"
-        f"  描述: {item.description or '暂无'}\n"
-        f"  食材: {', '.join(item.ingredients)}\n"
-        f"  准备时间: {item.prep_time_minutes}分钟\n"
-        f"  可点: {'是' if item.available else '否'}"
-    )
+    """已废弃：查看冰柜食材详情"""
+    return show_fridge_item(item_id)
 
 
 TOOL_LIST = [
@@ -66,11 +34,14 @@ TOOL_LIST = [
         "type": "function",
         "function": {
             "name": "get_menu",
-            "description": "Get the full menu, optionally filtered by category (appetizer/main/dessert/drink/wine)",
+            "description": "查看餐厅能吃什么（江西特色：展示冰柜食材而不是菜单）",
             "parameters": {
                 "type": "object",
                 "properties": {
-                    "category": {"type": "string", "enum": ["appetizer", "main", "dessert", "drink", "wine"]},
+                    "category": {
+                        "type": "string",
+                        "description": "保留参数，无用",
+                    },
                 },
             },
         },
@@ -79,7 +50,7 @@ TOOL_LIST = [
         "type": "function",
         "function": {
             "name": "get_menu_item_details",
-            "description": "Get detailed info about a menu item by ID",
+            "description": "查看食材详情",
             "parameters": {
                 "type": "object",
                 "properties": {

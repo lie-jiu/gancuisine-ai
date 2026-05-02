@@ -1,4 +1,4 @@
-"""Test configuration and fixtures."""
+"""Test configuration and fixtures for the 江西冰柜点菜 system."""
 
 from __future__ import annotations
 
@@ -8,14 +8,13 @@ import pytest
 from fastapi.testclient import TestClient
 
 from app.db.memory import db
-from app.graph.workflow import agent_graph
 
 
 @pytest.fixture(autouse=True)
 def reset_db():
     """Reset the in-memory database before each test."""
     db.tables.clear()
-    db.menu.clear()
+    db.fridge.clear()
     db.orders.clear()
     db.reservations.clear()
     db.inventory.clear()
